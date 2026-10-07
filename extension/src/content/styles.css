@@ -1,0 +1,68 @@
+.ai-commenter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 40px;
+  padding: 8px 10px;
+  margin: 0 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.6);
+  font: 600 14px -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background 0.15s;
+}
+.ai-commenter-btn:hover { background: rgba(0, 0, 0, 0.08); color: #0a66c2; }
+.ai-commenter-btn:focus-visible { outline: 2px solid #0a66c2; outline-offset: 1px; }
+.ai-commenter-btn:disabled { cursor: progress; opacity: 0.75; }
+.ai-commenter-btn.is-loading svg { animation: ai-commenter-spin 1s linear infinite; }
+.ai-commenter-btn.is-error { color: #b24020; }
+@keyframes ai-commenter-spin { to { transform: rotate(360deg); } }
+
+html.theme--dark .ai-commenter-btn { color: rgba(255, 255, 255, 0.7); }
+html.theme--dark .ai-commenter-btn:hover { background: rgba(255, 255, 255, 0.1); }
+
+.ai-commenter-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99999;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: #1d2226;
+  color: #fff;
+  font: 14px -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.ai-commenter-toast.is-error { background: #b24020; }
+
+/* Icon-only variant inside the comment box toolbar */
+.ai-commenter-btn--icon {
+  min-height: 32px;
+  width: 32px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  color: #0a66c2;
+}
+.ai-commenter-btn--icon .ai-commenter-label { display: none; }
+
+/* Brand polish */
+.ai-commenter-btn .aic-icon { transition: transform 0.2s ease; }
+.ai-commenter-btn:hover .aic-icon { transform: scale(1.12) rotate(-8deg); }
+.ai-commenter-btn--icon:hover { background: linear-gradient(135deg, rgba(10,102,194,.10), rgba(123,63,228,.14)); }
+.ai-commenter-btn.is-loading svg { animation: aic-pulse 0.9s ease-in-out infinite; }
+.ai-commenter-btn.is-error .aic-icon path { fill: #b24020; }
+@keyframes aic-pulse { 0%,100% { transform: scale(.85) rotate(0); opacity:.6 } 50% { transform: scale(1.15) rotate(90deg); opacity:1 } }
+.ai-commenter-toast { background: linear-gradient(135deg, #0A66C2, #7B3FE4); border-radius: 999px; font-weight: 500; animation: aic-in .25s ease; }
+.ai-commenter-toast.is-error { background: #b24020; }
+@keyframes aic-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+/* Logo image icon */
+.ai-commenter-btn img.aic-icon { display: block; border-radius: 5px; pointer-events: none; }
+.ai-commenter-btn.is-loading img.aic-icon { animation: aic-pulse 0.9s ease-in-out infinite; }
+.ai-commenter-btn.is-error img.aic-icon { filter: grayscale(1) sepia(1) hue-rotate(-30deg) saturate(4); }

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LinkedIn AI Commenter</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <img src="../../icons/icon48.png" alt="" width="32" height="32" />
+    <div>
+      <h1>AI Commenter</h1>
+      <p class="sub">Smart comments for LinkedIn</p>
+    </div>
+    <span id="keyBadge" class="badge">No key</span>
+  </header>
+
+  <div id="authContainer" style="display: none;">
+    <div class="panel active">
+      <h2 id="authTitle" style="margin-top:0">Register</h2>
+      <form id="authForm">
+        <div id="nameField">
+          <label for="fullName">Full Name</label>
+          <input id="fullName" type="text" placeholder="John Doe" />
+        </div>
+        <label for="email">Email</label>
+        <input id="email" type="email" placeholder="john@example.com" required />
+        <label for="password">Password</label>
+        <input id="password" type="password" placeholder="••••••••" required />
+        
+        <p id="authError" class="warn" style="margin-top:8px; font-size:12px;"></p>
+        
+        <button type="submit" id="authSubmit" class="primary" style="width:100%; margin-top: 14px;">Sign Up</button>
+      </form>
+      <p class="help" style="text-align: center; margin-top: 16px;">
+        <a href="#" id="toggleAuthMode">Already have an account? Login</a>
+      </p>
+    </div>
+  </div>
+
+  <div id="appContainer" style="display: none;">
+    <nav role="tablist">
+      <button role="tab" data-tab="settings" class="active">Settings</button>
+      <button role="tab" data-tab="context">Context</button>
+      <button role="tab" data-tab="account">Account</button>
+    </nav>
+
+    <form id="appForm">
+      <section data-panel="settings" class="panel active">
+        <p class="help">Generation uses the secured OpenRouter API configured by the backend.</p>
+        <label for="model">Model</label>
+        <select id="model"></select>
+
+        <label>Comment style</label>
+        <div id="styles" class="chips" role="radiogroup"></div>
+      </section>
+
+      <section data-panel="context" class="panel">
+        <label for="systemPrompt">Your context / system prompt</label>
+        <p class="help">Tell the AI who you are and how you comment. This is added to every request.</p>
+        <textarea id="systemPrompt" rows="9" maxlength="3000"
+          placeholder="Example:&#10;I'm a backend engineer at a fintech startup, 6 years in Python and AWS.&#10;I like practical, experience based comments.&#10;Keep it under 2 sentences. Ask a question when it fits.&#10;Never mention my company."></textarea>
+        <div class="meta"><span id="spCount">0</span>/3000</div>
+      </section>
+
+      <section data-panel="account" class="panel">
+        <div class="account-card">
+          <h3 id="accName" style="margin: 0 0 4px 0">Loading...</h3>
+          <p id="accEmail" style="margin: 0 0 12px 0; color: #666"></p>
+          <div style="display:flex; justify-content: space-between; border-top: 1px solid #e6e6e6; padding-top: 12px;">
+            <div>
+              <strong>Plan:</strong> <span id="accPlan" style="text-transform: capitalize;">Free</span>
+            </div>
+            <div>
+              <strong>Generated:</strong> <span id="accComments">0</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" id="logoutBtn" class="link-btn" style="color: #b24020; margin-top: 16px;">Logout</button>
+        
+        <div style="margin-top: 24px; border-top: 1px solid #e6e6e6; padding-top: 16px;">
+          <h4 style="margin:0 0 8px 0;">System Logs</h4>
+          <textarea id="debugLog" rows="6" readonly style="width: 100%; font-family: monospace; font-size: 10px; background: #f8f9fa; border: 1px solid #cfd3d8; border-radius: 4px; padding: 6px; resize: none;"></textarea>
+        </div>
+      </section>
+
+      <footer id="saveBar">
+        <span id="status" role="status"></span>
+        <button type="submit" id="save" class="primary">Save</button>
+      </footer>
+    </form>
+  </div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

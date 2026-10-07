@@ -1,0 +1,55 @@
+#sn-visible-exporter {
+  position: fixed;
+  z-index: 2147483647;
+  right: 20px;
+  bottom: 20px;
+  width: 220px;
+  padding: 14px;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .18);
+  color: #1d2226;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#sn-visible-exporter strong,
+#sn-visible-exporter span {
+  display: block;
+}
+
+#sn-visible-exporter strong {
+  font-size: 15px;
+  margin-bottom: 2px;
+}
+
+#sn-visible-exporter .sn-exporter-count {
+  color: #666;
+  margin-bottom: 10px;
+}
+
+#sn-visible-exporter button {
+  width: 100%;
+  margin-top: 7px;
+  padding: 7px 9px;
+  border: 1px solid #0a66c2;
+  border-radius: 16px;
+  background: #0a66c2;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+#sn-visible-exporter button:hover {
+  background: #004182;
+}
+
+#sn-visible-exporter .sn-exporter-status {
+  margin-top: 10px;
+  color: #666;
+  font-size: 11px;
+}
+
+#sn-visible-exporter .sn-exporter-status.is-error {
+  color: #b24020;
+}
