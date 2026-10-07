@@ -15,7 +15,7 @@ variables before deploying:
 
 The extension production API is configured as:
 
-`https://linkedin-comment-ai.vercel.app/api/v1`
+`https://linked-in-comment-ai.vercel.app/api/v1`
 
 ## Local development
 
