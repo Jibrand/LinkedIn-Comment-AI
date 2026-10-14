@@ -4,20 +4,102 @@
   const { findLinkedInPosts, findCommentButton, findActionBar, findCommentEditor, extractPostContent, expandPost, isVisible } = window.LIDom;
   const ATTR = "data-ai-commenter-attached";
   const BUTTON_ATTR = "data-ai-commenter-button";
+  const boxStates = new WeakMap();
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  async function requestComment(postData) {
+  function getBoxKey(editor) {
+    const replyContainer = editor.closest(".comments-comment-item, article.comments-comment-entity");
+    if (replyContainer) return replyContainer;
+    if (editor.closest(".msg-form")) return editor.closest(".msg-form");
+    // The post container survives LinkedIn replacing the comment form/editor.
+    // Use it for the main comment box so focus and blur cannot create a new state.
+    try {
+      const post = window.LIDom?.findPostForEditor(editor);
+      if (post) return post;
+    } catch {}
+    return editor.closest("form, .comments-comment-box, [data-test-id*='comment' i]") || editor;
+  }
+
+  function getBoxState(editor) {
+    const key = getBoxKey(editor);
+    let state = boxStates.get(key);
+    if (!state) {
+      state = {
+        key,
+        editor,
+        status: "idle",
+        loading: false,
+        isInsertingProgrammatically: false,
+        history: [],
+        buttons: new Set(),
+        postData: () => ({}),
+      };
+      boxStates.set(key, state);
+    }
+    state.editor = editor;
+    return state;
+  }
+
+  function renderButton(state) {
+    const buttons = state.buttons || new Set([state.button].filter(Boolean));
+    buttons.forEach((btn) => {
+      if (!btn.isConnected) return;
+      btn.classList.toggle("done", state.status === "done");
+      btn.classList.toggle("is-loading", state.status === "loading");
+      btn.classList.toggle("is-error", state.status === "error");
+      btn.disabled = state.status === "loading";
+      btn.title = state.status === "done" ? "Refine or regenerate" : state.status === "loading" ? "Generating…" : state.status === "error" ? "Retry" : "Generate AI comment";
+      btn.setAttribute("aria-label", btn.title);
+    });
+  }
+
+  function syncPostButtons(post, state) {
+    if (!post) return;
+    post.querySelectorAll(`[${BUTTON_ATTR}]`).forEach((host) => {
+      const button = host.shadowRoot?.querySelector("button");
+      if (!button) return;
+      state.buttons.add(button);
+      button.__controller = state;
+    });
+    renderButton(state);
+  }
+
+  function setBoxState(state, status, message) {
+    state.status = status;
+    renderButton(state);
+    if (message) toast(message, status === "error");
+  }
+
+  async function requestComment(postData, refine = {}, signal) {
     if (typeof chrome === "undefined" || !chrome.runtime || typeof chrome.runtime.sendMessage !== "function") {
       throw new Error("Extension connection unavailable. Reload this LinkedIn tab and try again.");
     }
+
     try {
-      return await chrome.runtime.sendMessage({ type: "GENERATE_COMMENT", postData });
+      const request = chrome.runtime.sendMessage({ type: "GENERATE_COMMENT", postData, refine });
+      if (!signal) return await request;
+      return await Promise.race([
+        request,
+        new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("Generation cancelled.")), { once: true })),
+      ]);
     } catch (error) {
       if (/Extension context invalidated|Receiving end does not exist|message port closed/i.test(error.message || "")) {
         throw new Error("Extension connection unavailable. Reload this LinkedIn tab and try again.");
       }
       throw error;
     }
+  }
+
+  async function requestDM(dmData, refine = {}, signal) {
+    if (typeof chrome === "undefined" || !chrome.runtime || typeof chrome.runtime.sendMessage !== "function") {
+      throw new Error("Extension connection unavailable. Reload this LinkedIn tab and try again.");
+    }
+    const request = chrome.runtime.sendMessage({ type: "GENERATE_COMMENT", kind: "DM", dmData, refine });
+    if (!signal) return request;
+    return Promise.race([
+      request,
+      new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("Generation cancelled.")), { once: true })),
+    ]);
   }
 
   // Extension logo, embedded as a data URI (no extension URL requests).
@@ -38,34 +120,34 @@
     if (!bar) return;
     post.setAttribute(ATTR, "true");
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "ai-commenter-btn";
-    btn.setAttribute(BUTTON_ATTR, "true");
-    btn.title = "Generate AI comment";
-    btn.setAttribute("aria-label", "Generate AI comment");
-    btn.innerHTML = `${ICON}<span class="ai-commenter-label">AI</span>`;
+    const widget = createShadowButton();
+    const btn = widget.button;
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (btn.classList.contains("done")) {
+        openRefinePanel(btn.__controller);
+        return;
+      }
       handleClick(post, btn);
     });
-    bar.appendChild(btn);
+    bar.appendChild(widget.host);
   }
 
   function setState(btn, state, msg) {
-    const label = btn.querySelector(".ai-commenter-label");
-    btn.classList.remove("is-loading", "is-error");
-    btn.disabled = false;
+    btn.classList.remove("done", "is-loading", "is-error");
+    btn.disabled = state === "loading";
     if (state === "loading") {
       btn.classList.add("is-loading");
-      btn.disabled = true;
-      label.textContent = "Generating…";
+      btn.title = "Generating…";
+    } else if (state === "done") {
+      btn.classList.add("done");
+      btn.title = "Refine or regenerate";
     } else if (state === "error") {
       btn.classList.add("is-error");
-      label.textContent = "Retry";
+      btn.title = "Retry";
     } else {
-      label.textContent = "AI";
+      btn.title = "Generate AI comment";
     }
     if (msg) toast(msg, state === "error");
   }
@@ -80,29 +162,198 @@
     setTimeout(() => t.remove(), 4500);
   }
 
+  const SHADOW_STYLES = `
+    :host { all: initial; }
+    button { box-sizing: border-box; border: 0; font: 600 13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .button { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; border-radius:50%; background:transparent; color:#0a66c2; cursor:pointer; }
+    .button:hover { background:rgba(10,102,194,.12); }
+    .button.done { color:#16834b; }
+    .button.done img { display:none !important; }
+    .button.done::after { content:"↻"; font:700 24px/1 sans-serif; }
+    .button.loading img,.button.is-loading img { animation:spin .8s linear infinite; }
+    .button.error { color:#b24020; }
+    img { width:20px; height:20px; border-radius:5px; pointer-events:none; }
+    .panel { position:fixed; z-index:2147483647; width:min(330px,calc(100vw - 20px)); padding:12px; color:#1d2226; background:#fff; border:1px solid #e3e6e8; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.18); font:13px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    @media (prefers-color-scheme:dark) { .panel { color:#f3f6f8; background:#1d2226; border-color:#38434d; } }
+    h3 { margin:0 0 9px; font-size:14px; } .pills { display:flex; flex-wrap:wrap; gap:5px; }
+    .pill,.action { padding:6px 8px; border:1px solid #cfd3d8; border-radius:999px; background:transparent; color:inherit; cursor:pointer; }
+    .pill:hover,.action:hover { border-color:#7b3fe4; } .divider { height:1px; margin:11px 0; background:#e3e6e8; }
+    .custom { display:flex; gap:6px; } input { min-width:0; flex:1; padding:7px 8px; border:1px solid #cfd3d8; border-radius:7px; font:inherit; }
+    .send,.primary { padding:7px 10px; border-radius:7px; background:linear-gradient(135deg,#0a66c2,#7b3fe4); color:white; cursor:pointer; }
+    .send:disabled { opacity:.5; cursor:not-allowed; } .counter,.message { color:#666; font-size:11px; margin-top:4px; }
+    .bottom { display:flex; gap:6px; margin-top:10px; } .message.error { color:#b24020; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+  `;
+
+  function createShadowButton() {
+    const host = document.createElement("span");
+    host.setAttribute(BUTTON_ATTR, "true");
+    const root = host.attachShadow({ mode: "open" });
+    root.innerHTML = `<style>${SHADOW_STYLES}</style><button class="button" type="button" aria-label="Generate AI comment" title="Generate AI comment">${ICON}</button>`;
+    return { host, button: root.querySelector("button"), root };
+  }
+
+  function positionPanel(panel, host) {
+    const rect = host.getBoundingClientRect();
+    panel.style.left = `${Math.max(10, Math.min(rect.left, window.innerWidth - 340))}px`;
+    panel.style.top = `${rect.top > 250 ? rect.top - panel.offsetHeight - 8 : rect.bottom + 8}px`;
+  }
+
+  function openRefinePanel(controller) {
+    if (controller.panel) {
+      controller.panel.remove();
+      controller.panel = null;
+      return;
+    }
+    const panel = document.createElement("div");
+    panel.className = "panel";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", "Refine this comment");
+    const pills = controller.kind === "dm"
+      ? ["Shorter", "More casual", "More professional", "Less AI-sounding", "Add a question", "Softer", "More direct", "Suggest a call", "Follow up politely", "Remove emojis"]
+      : ["Shorter", "Longer", "More casual", "More professional", "Less AI-sounding", "Add a question", "Add a touch of humor", "Remove emojis", "More direct", "Agree more", "Respectfully disagree"];
+    panel.innerHTML = `<h3>Refine this comment</h3><div class="pills">${pills.map((p) => `<button class="pill" type="button">${p}</button>`).join("")}</div><div class="divider"></div><div class="custom"><input maxlength="200" placeholder="e.g. mention my experience in sales, keep it under 20 words" aria-label="Custom refinement instruction"><button class="send" type="button" disabled>Send</button></div><div class="counter">0/200</div><div class="message" role="status"></div><div class="bottom"><button class="action fresh" type="button">Regenerate fresh</button><button class="action undo" type="button">Undo</button></div>`;
+    controller.root.appendChild(panel);
+    controller.panel = panel;
+    positionPanel(panel, controller.host);
+    const input = panel.querySelector("input");
+    const message = panel.querySelector(".message");
+    const send = panel.querySelector(".send");
+    const run = (instruction) => refineComment(controller, instruction, message);
+    panel.querySelectorAll(".pill").forEach((pill) => pill.addEventListener("click", () => run(pill.textContent)));
+    input.addEventListener("input", () => {
+      panel.querySelector(".counter").textContent = `${input.value.length}/200`;
+      send.disabled = !input.value.trim() || controller.loading;
+    });
+    send.addEventListener("click", () => run(input.value.trim()));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && input.value.trim()) { event.preventDefault(); run(input.value.trim()); }
+    });
+    panel.querySelector(".fresh").addEventListener("click", () => run("Regenerate fresh"));
+    panel.querySelector(".undo").addEventListener("click", () => {
+      const previous = controller.history.pop();
+      if (previous) {
+        insertComment(controller.editor, previous);
+        message.textContent = "Restored the previous version.";
+      }
+    });
+    const close = (event) => {
+      if (event.key === "Escape") {
+        panel.remove();
+        controller.panel = null;
+        document.removeEventListener("keydown", close, true);
+      }
+    };
+    const outside = (event) => {
+      if (!controller.host.contains(event.target) && !panel.contains(event.target)) {
+        panel.remove();
+        controller.panel = null;
+        document.removeEventListener("keydown", close, true);
+        document.removeEventListener("pointerdown", outside, true);
+      }
+    };
+    document.addEventListener("keydown", close, true);
+    document.addEventListener("pointerdown", outside, true);
+    setTimeout(() => positionPanel(panel, controller.host), 0);
+  }
+
+  async function refineComment(controller, instruction, message) {
+    if (!instruction || controller.loading) return;
+    controller.loading = true;
+    controller.status = "loading";
+    renderButton(controller);
+    message.textContent = "Generating…";
+    message.className = "message";
+    controller.abortController?.abort();
+    controller.abortController = new AbortController();
+    try {
+      const context = controller.kind === "dm" ? controller.dmData() : controller.postData();
+      const previousText = controller.editor.innerText;
+      const response = controller.kind === "dm" ? await requestDM(
+        context,
+        instruction === "Regenerate fresh" ? {} : { currentMessage: controller.editor.innerText, instruction },
+        controller.abortController.signal
+      ) : await requestComment(
+        context,
+        instruction === "Regenerate fresh"
+          ? {}
+          : { currentComment: controller.editor.innerText, instruction },
+        controller.abortController.signal
+      );
+      if (!response?.ok) throw new Error(response?.error || "Could not refine this comment.");
+      controller.history.push(previousText);
+      controller.history = controller.history.slice(-window.AICommenterConfig.MAX_REFINE_HISTORY);
+      if (!insertComment(controller.editor, response.comment)) throw new Error("Could not insert the refined comment.");
+      controller.status = "done";
+      renderButton(controller);
+      message.textContent = "Updated. You can refine again or undo.";
+    } catch (error) {
+      if (error.message !== "Generation cancelled.") {
+        message.textContent = error.message || "Could not refine this comment.";
+        message.className = "message error";
+      }
+    } finally {
+      controller.loading = false;
+      if (controller.status === "loading") controller.status = "done";
+      renderButton(controller);
+    }
+  }
+
   async function handleClick(post, btn) {
     if (btn.disabled) return;
     setState(btn, "loading");
+    let generatedPostData;
     try {
-      expandPost(post);
-      await sleep(150);
+      const editor = await openCommentEditor(post);
+      if (!editor) throw new Error("Comment box not found. Click Comment, then try again.");
       const postData = extractPostContent(post);
       if (!postData.postText) throw new Error("Couldn't find text in this post.");
+      await addThreadContext(postData, post, editor);
+      generatedPostData = postData;
 
       const res = await requestComment(postData);
       if (!res?.ok) throw new Error(res?.error || "Couldn't generate a comment. Try again.");
 
-      const editor = await openCommentEditor(post);
-      if (!editor) throw new Error("Comment box not found. Click Comment, then try again.");
-
       const ok = insertComment(editor, res.comment);
       if (!ok) throw new Error("Couldn't insert the comment. Try again.");
-      setState(btn, "idle", "Comment inserted — review and click Post yourself.");
+      const state = getBoxState(editor);
+      state.button = btn;
+      state.buttons.add(btn);
+      state.host = btn.getRootNode().host;
+      state.root = btn.getRootNode();
+      state.postData = () => ({ ...generatedPostData });
+      state.status = "done";
+      btn.__controller = state;
+      attachEditorButton(editor);
+      syncPostButtons(post, state);
+      scheduleScan();
+      renderButton(state);
+      // This action-bar button starts outside the editor state lifecycle.
+      // Apply the final visual state explicitly so it changes on generation 1.
+      setState(btn, "done");
+      // LinkedIn may repaint the composer in the next render frame. Reapply
+      // the same state to every icon after that repaint as well.
+      requestAnimationFrame(() => syncPostButtons(post, state));
+      toast("Comment inserted — review and click Post yourself.");
+      renderButton(state);
     } catch (e) {
       const msg = /Extension context invalidated/i.test(e.message)
         ? "Extension was updated. Refresh the page."
         : e.message || "Couldn't generate comment";
       setState(btn, "error", msg);
+    }
+
+  }
+
+  async function addThreadContext(postData, post, editor) {
+    try {
+      const settings = await chrome.storage.local.get({ readThread: true, threadCommentCount: 10 });
+      if (settings.readThread === false) return;
+      postData.postText = postData.postText.slice(0, window.AICommenterConfig.MAX_POST_CHARS);
+      const owner = post || (editor && LIDom.findPostForEditor(editor));
+      if (owner) postData.threadContext = LIDom.extractThreadContext(owner, editor, settings.threadCommentCount);
+    } catch (error) {
+      if (window.AICommenterConfig.DEBUG_THREAD) console.debug("Thread scrape skipped:", error);
     }
   }
 
@@ -119,6 +370,8 @@
   }
 
   function insertComment(editor, text) {
+    const state = getBoxState(editor);
+    state.isInsertingProgrammatically = true;
     editor.scrollIntoView({ block: "center", behavior: "smooth" });
     editor.focus();
 
@@ -158,57 +411,158 @@
     end.collapse(false);
     sel.removeAllRanges();
     sel.addRange(end);
-    return visible();
+    const result = visible();
+    queueMicrotask(() => { state.isInsertingProgrammatically = false; });
+    return result;
   }
 
   // --- AI button inside the comment box toolbar (emoji / GIF / photo row) ---
   function attachEditorButton(editor) {
     const toolbar = LIDom.findEditorToolbar(editor);
-    if (!toolbar || toolbar.querySelector(`[${BUTTON_ATTR}]`)) return;
+    if (!toolbar) return;
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "ai-commenter-btn ai-commenter-btn--icon";
-    btn.setAttribute(BUTTON_ATTR, "true");
-    btn.title = "Generate AI comment";
-    btn.setAttribute("aria-label", "Generate AI comment");
-    btn.innerHTML = `${ICON}<span class="ai-commenter-label"></span>`;
+    const state = getBoxState(editor);
+    const existingHost = toolbar.querySelector(`[${BUTTON_ATTR}]`);
+    if (existingHost) {
+      const existingButton = existingHost.shadowRoot?.querySelector("button");
+      if (existingButton) {
+        // Preserve the completed visual state when LinkedIn keeps the host
+        // but replaces the editor that originally owned it.
+        if (state.status === "idle" && existingButton.classList.contains("done")) {
+          state.status = "done";
+        }
+        state.button = existingButton;
+        state.buttons.add(existingButton);
+        existingButton.__controller = state;
+        renderButton(state);
+      }
+      return;
+    }
+    const widget = createShadowButton();
+    const btn = widget.button;
+    state.button = btn;
+    state.buttons.add(btn);
+    state.host = widget.host;
+    state.root = widget.root;
+    renderButton(state);
+    editor.addEventListener("input", () => {
+      // A replaced editor may emit a final empty event while LinkedIn moves
+      // focus. It must not reset the state owned by the current editor.
+      if (
+        state.editor === editor &&
+        editor.isConnected &&
+        !state.isInsertingProgrammatically &&
+        !editor.innerText.trim()
+      ) {
+        state.status = "idle";
+        renderButton(state);
+      }
+    });
     btn.addEventListener("mousedown", (e) => e.preventDefault()); // keep editor focus
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (btn.disabled) return;
-      btn.classList.remove("is-error");
-      btn.classList.add("is-loading");
-      btn.disabled = true;
-      btn.title = "Generating…";
+      if (state.status === "loading") return;
+      if (state.status === "done") {
+        openRefinePanel(state);
+        return;
+      }
+      state.status = "loading";
+      state.loading = true;
+      renderButton(state);
       try {
         const post = LIDom.findPostForEditor(editor);
-        expandPost(post);
-        await sleep(150);
         const postData = LIDom.extractPostContentForEditor(post, editor);
         if (!postData.postText) throw new Error("Couldn't find text in this post.");
+        await addThreadContext(postData, post, editor);
         const res = await requestComment(postData);
         if (!res?.ok) throw new Error(res?.error || "Couldn't generate a comment. Try again.");
         if (!insertComment(editor, res.comment)) throw new Error("Couldn't insert the comment. Try again.");
+        state.postData = () => ({ ...postData });
+        state.status = "done";
+        state.loading = false;
+        btn.__controller = state;
+        renderButton(state);
         toast("Comment inserted — review and click Post yourself.");
-        btn.title = "Generate AI comment";
       } catch (err) {
-        btn.classList.add("is-error");
-        btn.title = "Couldn't generate comment — click to retry";
+        state.status = "error";
+        renderButton(state);
         toast(/context invalidated/i.test(err.message) ? "Extension was updated. Refresh the page." : err.message, true);
       } finally {
-        btn.classList.remove("is-loading");
-        btn.disabled = false;
+        state.loading = false;
+        if (state.status === "loading") state.status = "idle";
+        renderButton(state);
       }
     });
-    toolbar.insertBefore(btn, toolbar.firstChild);
+    toolbar.insertBefore(widget.host, toolbar.firstChild);
+  }
+
+  function attachDMButton(editor) {
+    const toolbar = LIDom.findEditorToolbar(editor) ||
+      editor.closest(".msg-form")?.querySelector(".msg-form__left-actions, .msg-form__footer");
+    if (!toolbar || toolbar.querySelector(`[${BUTTON_ATTR}]`)) return;
+    const settingsPromise = chrome.storage.local.get({ dmEnabled: true, dmMessageCount: 10, dmGoal: "Reply naturally" });
+    const state = getBoxState(editor);
+    state.kind = "dm";
+    const widget = createShadowButton();
+    const btn = widget.button;
+    state.button = btn;
+    state.buttons.add(btn);
+    state.host = widget.host;
+    state.root = widget.root;
+    btn.setAttribute("aria-label", "Generate AI message");
+    renderButton(state);
+    editor.addEventListener("input", () => {
+      if (!state.isInsertingProgrammatically && !editor.innerText.trim()) {
+        state.status = "idle";
+        renderButton(state);
+      }
+    });
+    btn.addEventListener("mousedown", (event) => event.preventDefault());
+    btn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.status === "loading") return;
+      if (state.status === "done") return openRefinePanel(state);
+      const settings = await settingsPromise;
+      if (settings.dmEnabled === false) return;
+      state.status = "loading";
+      state.loading = true;
+      renderButton(state);
+      try {
+        const dmData = LIDom.extractDMContext(editor, settings.dmMessageCount);
+        state.dmData = () => ({ ...dmData, messages: [...dmData.messages] });
+        state.dmGoal = settings.dmGoal;
+        const response = await requestDM({ ...dmData, dmGoal: settings.dmGoal });
+        if (!response?.ok) throw new Error(response?.error || "Could not draft a message.");
+        if (!insertComment(editor, response.comment)) throw new Error("Could not insert the message.");
+        state.status = "done";
+        state.loading = false;
+        renderButton(state);
+        toast("Message drafted. Review it before sending.");
+      } catch (error) {
+        state.status = "error";
+        renderButton(state);
+        toast(error.message || "Could not draft a message.", true);
+      } finally {
+        state.loading = false;
+        renderButton(state);
+      }
+    });
+    toolbar.insertBefore(widget.host, toolbar.firstChild);
   }
 
   // --- Dynamic detection: MutationObserver + SPA navigation ---
   let scheduled = false;
   function scan() {
     scheduled = false;
+    try {
+      LIDom.findMessageEditors().forEach((editor) => {
+        if (editor.isConnected) attachDMButton(editor);
+      });
+    } catch (e) {
+      if (window.AICommenterConfig.DEBUG_DM) console.debug("DM scan failed:", e);
+    }
     try {
       LIDom.findAllCommentEditors().forEach((editor) => {
         if (editor.isConnected) attachEditorButton(editor);
@@ -229,7 +583,8 @@
   pageObserver.observe(document.body, { childList: true, subtree: true });
   document.addEventListener("focusin", (event) => {
     if (event.target.matches?.('[contenteditable="true"]')) {
-      attachEditorButton(event.target);
+      if (LIDom.findMessageEditors().includes(event.target)) attachDMButton(event.target);
+      else attachEditorButton(event.target);
       scheduleScan();
     }
   }, true);

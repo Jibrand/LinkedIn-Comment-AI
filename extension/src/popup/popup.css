@@ -27,6 +27,9 @@ nav button.active { color: var(--violet); border-color: var(--violet); }
 
 .panel { display: none; padding: 2px 14px 10px; }
 .panel.active { display: block; overflow-y: auto; }
+#appContainer .panel.active { scrollbar-width: thin; scrollbar-color: #b9a4ec transparent; }
+#appContainer .panel.active::-webkit-scrollbar { width: 7px; }
+#appContainer .panel.active::-webkit-scrollbar-thumb { background: #c8b9ed; border-radius: 999px; }
 label { display: block; font-weight: 600; margin: 10px 0 5px; }
 .help { margin: -2px 0 8px; color: var(--muted); font-size: 12px; }
 input[type=password], input[type=text], input[type=email], select, textarea {
@@ -58,6 +61,7 @@ textarea { resize: vertical; min-height: 140px; }
 .switch input:checked + .track { background: var(--violet); }
 .switch input:checked + .track::after { left: 16px; }
 .switches { display: grid; gap: 5px; }
+.section-heading + .switch { margin-top: 4px; }
 
 footer { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-top: 1px solid var(--line); background: var(--bg); flex: none; }
 footer[hidden] { display: none; }

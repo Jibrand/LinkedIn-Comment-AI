@@ -63,6 +63,32 @@
           <label class="switch"><input id="moreCasual" type="checkbox" /><span class="track"></span><span>More casual</span></label>
           <label class="switch"><input id="lessAiSounding" type="checkbox" /><span class="track"></span><span>Less AI-sounding</span></label>
         </div>
+
+        <h3 class="section-heading">Thread Context</h3>
+        <label class="switch"><input id="readThread" type="checkbox" /><span class="track"></span><span>Read existing comments</span></label>
+        <label for="threadCommentCount">How many comments to read</label>
+        <select id="threadCommentCount">
+          <option value="5">5 comments</option>
+          <option value="10">10 comments</option>
+          <option value="20">20 comments</option>
+        </select>
+
+        <h3 class="section-heading">Direct Messages</h3>
+        <label class="switch"><input id="dmEnabled" type="checkbox" /><span class="track"></span><span>Enable DM assistant</span></label>
+        <label for="dmMessageCount">How many previous messages to read</label>
+        <select id="dmMessageCount">
+          <option value="5">5 messages</option>
+          <option value="10">10 messages</option>
+          <option value="15">15 messages</option>
+        </select>
+        <label for="dmGoal">DM goal</label>
+        <select id="dmGoal">
+          <option>Reply naturally</option>
+          <option>Build relationship</option>
+          <option>Book a call</option>
+          <option>Follow up</option>
+          <option>Say thanks</option>
+        </select>
       </section>
 
       <section data-panel="context" class="panel">

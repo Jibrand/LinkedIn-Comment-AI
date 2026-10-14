@@ -3,6 +3,11 @@ export const DEFAULT_SETTINGS = {
   model: "gpt-4o-mini",
   style: "Professional",
   commentLength: "Medium",
+  readThread: true,
+  threadCommentCount: 10,
+  dmEnabled: true,
+  dmMessageCount: 10,
+  dmGoal: "Reply naturally",
   adjustStyle: {
     shorter: false,
     moreCasual: false,

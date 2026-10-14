@@ -135,6 +135,11 @@ function settingsFromForm() {
     model: $("model").value,
     style: currentStyle,
     commentLength: currentCommentLength,
+    readThread: $("readThread").checked,
+    threadCommentCount: Number($("threadCommentCount").value),
+    dmEnabled: $("dmEnabled").checked,
+    dmMessageCount: Number($("dmMessageCount").value),
+    dmGoal: $("dmGoal").value,
     adjustStyle: {
       shorter: $("shorter").checked,
       moreCasual: $("moreCasual").checked,
@@ -214,6 +219,17 @@ function updateBadge(isLoggedIn) {
   $("shorter").checked = Boolean(s.adjustStyle?.shorter);
   $("moreCasual").checked = Boolean(s.adjustStyle?.moreCasual);
   $("lessAiSounding").checked = Boolean(s.adjustStyle?.lessAiSounding);
+  $("readThread").checked = s.readThread !== false;
+  $("threadCommentCount").value = [5, 10, 20].includes(Number(s.threadCommentCount))
+    ? String(s.threadCommentCount)
+    : "10";
+  $("dmEnabled").checked = s.dmEnabled !== false;
+  $("dmMessageCount").value = [5, 10, 15].includes(Number(s.dmMessageCount))
+    ? String(s.dmMessageCount)
+    : "10";
+  $("dmGoal").value = ["Reply naturally", "Build relationship", "Book a call", "Follow up", "Say thanks"].includes(s.dmGoal)
+    ? s.dmGoal
+    : "Reply naturally";
   updateBadge(Boolean(s.token));
   $("debugLog").value = s.lastLog || "No logs yet. Run the commenter to see output.";
 })();
@@ -222,6 +238,11 @@ $("model").addEventListener("change", scheduleSettingsSave);
 $("shorter").addEventListener("change", scheduleSettingsSave);
 $("moreCasual").addEventListener("change", scheduleSettingsSave);
 $("lessAiSounding").addEventListener("change", scheduleSettingsSave);
+$("readThread").addEventListener("change", scheduleSettingsSave);
+$("threadCommentCount").addEventListener("change", scheduleSettingsSave);
+$("dmEnabled").addEventListener("change", scheduleSettingsSave);
+$("dmMessageCount").addEventListener("change", scheduleSettingsSave);
+$("dmGoal").addEventListener("change", scheduleSettingsSave);
 $("systemPrompt").addEventListener("input", () => {
   $("spCount").textContent = $("systemPrompt").value.length;
   scheduleSettingsSave();

@@ -1,10 +1,11 @@
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const MODEL = "gpt-4o-mini";
+import { COMMENT_LIMITS } from "../config/comment-limits.js";
 
 const getOpenAIKey = () => process.env.OPENAI_API_KEY;
 
 export const generateText = async (req, res) => {
-  const { prompt, temperature, max_tokens: maxTokens } = req.body;
+  const { prompt, temperature, max_tokens: maxTokens, postData, threadContext, dmContext } = req.body;
 
   if (typeof prompt !== "string" || prompt.trim().length === 0) {
     return res.status(400).json({ success: false, message: "A non-empty prompt is required" });
@@ -12,6 +13,42 @@ export const generateText = async (req, res) => {
 
   if (prompt.length > 8000) {
     return res.status(400).json({ success: false, message: "Prompt must be 8000 characters or fewer" });
+  }
+  if (postData?.postText && String(postData.postText).length > COMMENT_LIMITS.MAX_POST_CHARS) {
+    return res.status(400).json({ success: false, message: "Post text exceeds the allowed limit" });
+  }
+  if (threadContext) {
+    const comments = Array.isArray(threadContext.comments) ? threadContext.comments : [];
+    if (comments.length > COMMENT_LIMITS.MAX_THREAD_COMMENTS_OPTIONS.at(-1)) {
+      return res.status(400).json({ success: false, message: "Too many thread comments" });
+    }
+    if (dmContext) {
+      const prospect = dmContext.prospect || {};
+      const messages = Array.isArray(dmContext.messages) ? dmContext.messages : [];
+      if (messages.length > COMMENT_LIMITS.MAX_DM_MESSAGES_OPTIONS.at(-1)) {
+        return res.status(400).json({ success: false, message: "Too many direct messages" });
+      }
+      if (String(prospect.name || "").length > COMMENT_LIMITS.MAX_DM_NAME_CHARS ||
+          String(prospect.headline || "").length > COMMENT_LIMITS.MAX_DM_HEADLINE_CHARS) {
+        return res.status(400).json({ success: false, message: "Prospect information exceeds the allowed limit" });
+      }
+      const totalChars = messages.reduce((sum, item) => sum + String(item?.text || "").length, 0);
+      if (totalChars > COMMENT_LIMITS.MAX_DM_TOTAL_CHARS ||
+          messages.some((item) => !["me", "them"].includes(item?.from) ||
+            String(item?.text || "").length > COMMENT_LIMITS.MAX_DM_MESSAGE_CHARS)) {
+        return res.status(400).json({ success: false, message: "Direct message limits exceeded" });
+      }
+    }
+    const totalChars = comments.reduce((sum, item) => sum + String(item?.text || "").length, 0)
+      + String(threadContext.replyingTo?.text || "").length;
+    if (totalChars > COMMENT_LIMITS.MAX_THREAD_TOTAL_CHARS ||
+        comments.some((item) => String(item?.text || "").length > COMMENT_LIMITS.MAX_CHARS_PER_COMMENT)) {
+      return res.status(400).json({ success: false, message: "Thread comment limits exceeded" });
+    }
+    if (threadContext.replyingTo &&
+        String(threadContext.replyingTo.text || "").length > COMMENT_LIMITS.MAX_CHARS_PER_COMMENT) {
+      return res.status(400).json({ success: false, message: "Reply context limit exceeded" });
+    }
   }
 
   const apiKey = getOpenAIKey();

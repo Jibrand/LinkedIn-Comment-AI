@@ -170,6 +170,7 @@
       const emoji = node?.querySelector('button[aria-label*="Emoji" i], button[aria-label*="emoji" i]');
       if (emoji && !editor.contains(emoji)) return emoji.parentElement;
     }
+    return editor.closest(".msg-form")?.querySelector(".msg-form__left-actions, .msg-form__footer") || null;
     return null;
   }
 
@@ -204,10 +205,223 @@
     const data = extractPostContent(post);
     const before = textBeforeEditor(post, editor);
     if (before.length > 30 || !data.postText) {
-      data.postText = before.replace(/…\s*(see more|more)\s*$/i, "").trim().slice(0, 4000);
+      data.postText = before.replace(/…\s*(see more|more)\s*$/i, "").trim().slice(0, window.AICommenterConfig.MAX_POST_CHARS);
       data.hashtags = [...new Set(data.postText.match(/#[\p{L}\d_]+/gu) || [])].slice(0, 10);
     }
     return data;
+  }
+
+  const COMMENT_SELECTORS = [
+    ".comments-comment-item",
+    "article.comments-comment-entity",
+    '[data-view-name*="comment" i]',
+    '[data-testid*="comment" i]',
+  ];
+  const NOISE = /^(like|reply|edited|see more|more|follow|following|share|send|[\d,.]+[kKmM]?)$/i;
+
+  function cleanCommentText(value) {
+    return String(value || "")
+      .split(/\n+/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter((line) => line && !NOISE.test(line) && !/^\d+[smhdwy]$/i.test(line))
+      .join(" ")
+      .replace(/…\s*(see more|more)$/i, "")
+      .trim();
+  }
+
+  function commentAuthor(item) {
+    const author = item.querySelector([
+      ".comments-post-meta__name-text",
+      ".comments-comment-item__post-meta .hoverable-link-text",
+      ".comments-comment-item__post-meta a",
+      '[data-view-name*="comment-author" i]',
+      "a[href*='/in/']",
+    ].join(", "));
+    return cleanCommentText(author?.innerText || author?.textContent).split(" ")[0] || "Unknown";
+  }
+
+  function commentText(item) {
+    const content = item.querySelector([
+      ".comments-comment-item__main-content",
+      ".comments-comment-item-content-body",
+      ".update-components-text",
+      '[data-view-name*="comment-content" i]',
+      '[data-testid*="comment-content" i]',
+    ].join(", "));
+    const source = content || item;
+    return cleanCommentText(source.innerText || source.textContent);
+  }
+
+  function isOwnComment(item, author) {
+    return /^(you|me)$/i.test(author) ||
+      item.matches("[data-is-self='true'], [data-owned-by-viewer='true']") ||
+      Boolean(item.querySelector("[data-is-self='true'], [data-owned-by-viewer='true']"));
+  }
+
+  function getCommentItems(post) {
+    const items = [];
+    for (const selector of COMMENT_SELECTORS) {
+      post.querySelectorAll(selector).forEach((item) => {
+        if (!items.includes(item) && isVisible(item)) items.push(item);
+      });
+    }
+    return items.sort((a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+  }
+
+  function findParentComment(post, editor) {
+    const direct = editor.closest(COMMENT_SELECTORS.join(","));
+    if (direct && commentText(direct).length >= window.AICommenterConfig.MIN_COMMENT_CHARS) return direct;
+    if (!isReplyEditor(editor)) return null;
+    const items = getCommentItems(post);
+    return items.filter((item) => item.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).pop() || null;
+  }
+
+  function isReplyEditor(editor) {
+    const marker = `${editor.getAttribute("aria-label") || ""} ${editor.getAttribute("data-placeholder") || ""} ${editor.parentElement?.innerText || ""}`;
+    return /\breply\b/i.test(marker);
+  }
+
+  function extractThreadContext(post, editor, requestedLimit = 10) {
+    const config = window.AICommenterConfig;
+    const limit = config.MAX_THREAD_COMMENTS_OPTIONS.includes(Number(requestedLimit))
+      ? Number(requestedLimit)
+      : config.MAX_THREAD_COMMENTS;
+    const parentItem = findParentComment(post, editor);
+    if (isReplyEditor(editor) && !parentItem) return { comments: [], replyingTo: null };
+    const allItems = getCommentItems(post);
+    const items = parentItem
+      ? allItems.filter((item) => item !== parentItem && parentItem.contains(item))
+      : allItems.filter((item) => !item.parentElement?.closest(COMMENT_SELECTORS.join(",")));
+    const parentAuthor = parentItem ? commentAuthor(parentItem) : "";
+    const parentRawText = parentItem ? commentText(parentItem) : "";
+    const parentText = parentRawText.length > config.MAX_CHARS_PER_COMMENT
+      ? `${parentRawText.slice(0, config.MAX_CHARS_PER_COMMENT - 1)}…`
+      : parentRawText;
+    const seen = new Set();
+    const comments = [];
+    let total = parentText.length;
+    for (const item of items) {
+      const author = commentAuthor(item);
+      const text = commentText(item);
+      const key = `${author.toLowerCase()}\n${text.toLowerCase()}`;
+      if (isOwnComment(item, author) || text.length < config.MIN_COMMENT_CHARS || seen.has(key)) continue;
+      const clipped = text.length > config.MAX_CHARS_PER_COMMENT
+        ? `${text.slice(0, config.MAX_CHARS_PER_COMMENT - 1)}…`
+        : text;
+      if (total + clipped.length > config.MAX_THREAD_TOTAL_CHARS) break;
+      seen.add(key);
+      comments.push({ author, text: clipped });
+      total += clipped.length;
+      if (comments.length >= limit) break;
+    }
+
+      let replyingTo = null;
+    if (parentItem) {
+      if (parentText.length >= config.MIN_COMMENT_CHARS) {
+        replyingTo = {
+          author: parentAuthor,
+          text: parentText,
+        };
+      }
+    }
+    return { comments: replyingTo ? comments.slice(0, config.MAX_NEARBY_REPLIES) : comments, replyingTo };
+  }
+
+  const DM_COMPOSER_SELECTORS = [
+    '[contenteditable="true"][data-placeholder*="message" i]',
+    '[contenteditable="true"][aria-label*="message" i]',
+    '.msg-form__contenteditable[contenteditable="true"]',
+    '.msg-form__msg-content-container [contenteditable="true"]',
+  ];
+  const DM_MESSAGE_SELECTORS = [
+    ".msg-s-message-list__event",
+    ".msg-s-message-list-content",
+    '[data-event-urn*="messaging"]',
+    '[data-view-name*="message" i]',
+  ];
+  const DM_NOISE = /^(seen|delivered|sent|today|yesterday|just now|like|reply|more|message|you joined|joined)$/i;
+
+  function isMessagingPage() {
+    return location.pathname.startsWith("/messaging/");
+  }
+
+  function findMessageEditors(root = document) {
+    return [...root.querySelectorAll(DM_COMPOSER_SELECTORS.join(","))].filter(isVisible);
+  }
+
+  function dmText(el) {
+    return cleanCommentText(el?.innerText || el?.textContent || "");
+  }
+
+  function dmProspect(editor) {
+    const scope = editor.closest(".msg-overlay-conversation-bubble, .msg-conversation-card, main, body") || document.body;
+    const nameSelectors = [
+      ".msg-thread__link-to-profile",
+      ".msg-entity-lockup__entity-title",
+      ".msg-overlay-bubble-header__link",
+      ".msg-conversation-card__participant-names",
+      '[data-view-name*="conversation" i] a[href*="/in/"]',
+    ];
+    const headlineSelectors = [
+      ".msg-entity-lockup__entity-subtitle",
+      ".msg-thread__link-to-profile + div",
+      ".msg-overlay-bubble-header__subtitle",
+      '[data-view-name*="profile" i] [class*="subtitle" i]',
+    ];
+    const pick = (selectors) => {
+      for (const selector of selectors) {
+        const value = dmText(scope.querySelector(selector));
+        if (value && !DM_NOISE.test(value)) return value;
+      }
+      return "";
+    };
+    return {
+      name: pick(nameSelectors).slice(0, window.AICommenterConfig.MAX_DM_NAME_CHARS),
+      headline: pick(headlineSelectors).slice(0, window.AICommenterConfig.MAX_DM_HEADLINE_CHARS),
+    };
+  }
+
+  function dmSender(item, prospectName) {
+    if (item.matches(".msg-s-message-list__event--outbound, .msg-s-message-list__event--outgoing") ||
+        item.querySelector(".msg-s-message-list__event--outbound, [data-is-outgoing='true']")) return "me";
+    const sender = dmText(item.querySelector(".msg-s-message__name, .msg-s-message-group__name, [data-view-name*='sender' i]"));
+    if (sender && prospectName && sender.toLowerCase() !== prospectName.toLowerCase()) return "me";
+    if (item.matches(".msg-s-message-list__event--inbound, .msg-s-message-list__event--incoming") ||
+        item.querySelector(".msg-s-message-list__event--inbound, [data-is-outgoing='false']")) return "them";
+    return sender && prospectName && sender.toLowerCase() === prospectName.toLowerCase() ? "them" : null;
+  }
+
+  function extractDMContext(editor, requestedLimit = 10) {
+    const config = window.AICommenterConfig;
+    const limit = config.MAX_DM_MESSAGES_OPTIONS.includes(Number(requestedLimit))
+      ? Number(requestedLimit)
+      : config.MAX_DM_MESSAGES;
+    const prospect = dmProspect(editor);
+    const scope = editor.closest(".msg-overlay-conversation-bubble, .msg-conversation-card, main") || document.body;
+    const nodes = [];
+    for (const selector of DM_MESSAGE_SELECTORS) {
+      scope.querySelectorAll(selector).forEach((item) => {
+        if (!nodes.includes(item) && isVisible(item)) nodes.push(item);
+      });
+    }
+    nodes.sort((a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+    const messages = [];
+    let total = 0;
+    for (const item of nodes.slice(-limit * 2)) {
+      const content = item.querySelector(".msg-s-event-listitem__body, .msg-s-message__content, [data-view-name*='message-content' i]");
+      const text = dmText(content || item) ||
+        (item.querySelector("img, [data-test-icon='image'], [class*='attachment' i]") ? "[image]" : "");
+      if (!text || DM_NOISE.test(text) || /^\d+[smhd]$/.test(text)) continue;
+      const from = dmSender(item, prospect.name);
+      if (!from) continue;
+      const clipped = text.length > config.MAX_DM_MESSAGE_CHARS
+        ? `${text.slice(0, config.MAX_DM_MESSAGE_CHARS - 1)}…`
+        : text;
+      if (total + clipped.length > config.MAX_DM_TOTAL_CHARS) break;
+      messages.push({ from, text: clipped });
+      total += clipped.length;
+    }
+    return { prospect, messages: messages.slice(-limit) };
   }
 
   window.LIDom = {
@@ -215,6 +429,10 @@
     findEditorToolbar,
     findPostForEditor,
     extractPostContentForEditor,
+    extractThreadContext,
+    isMessagingPage,
+    findMessageEditors,
+    extractDMContext,
     findLinkedInPosts,
     findCommentButton,
     findActionBar,

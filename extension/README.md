@@ -37,12 +37,13 @@ src/popup/*                   settings UI
 |---|---|
 | `storage` | Save API key, model, style locally (`chrome.storage.local`, not synced). |
 | `https://www.linkedin.com/*` | Inject the button and read the post you click on. |
-| `https://generativelanguage.googleapis.com/*` | Call the Gemini API. |
+| `http://localhost:3001/*` / production API host | Send generation requests to the authenticated backend. |
 
 ## Privacy
 - The generation API is called **only when you click ✨ AI**, and only for that post.
 - Sent: post text, author name/headline, visible article title, hashtags. Nothing is stored or sent elsewhere.
 - Comment length and style adjustments are stored locally in `chrome.storage.local`; they are included in the generation prompt and are not stored in the database.
+- Message content and prospect information are sent to the AI provider only to generate a draft and are not stored by the extension or database.
 
 ## Troubleshooting
 - **No ✨ button**: refresh the page; LinkedIn may have changed its DOM — selectors live in `linkedin-dom.js`.

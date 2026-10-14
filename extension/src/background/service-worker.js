@@ -1,4 +1,4 @@
-import { generateComment } from "../utils/gemini.js";
+import { generateComment, generateMessage } from "../utils/gemini.js";
 import { getSettings } from "../utils/storage.js";
 import { API_BASE } from "../config.js";
 
@@ -47,7 +47,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         throw new Error("Please log in via the extension popup first.");
       }
       
-      const result = await generateComment(msg.postData, settings);
+      const result = msg.kind === "DM"
+        ? await generateMessage(msg.dmData, { ...settings, refine: msg.refine || {} })
+        : await generateComment(msg.postData, { ...settings, refine: msg.refine || {} });
       const { comment } = result;
       const tokenUsage = await recordTokenUsage(result.usage);
       
