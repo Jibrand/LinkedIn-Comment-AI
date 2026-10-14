@@ -6,6 +6,7 @@ import commentRoutes from "./Routes/comment.js";
 import openRouterRoutes from "./Routes/openRouter.js";
 import dotenv from "dotenv";
 import database from "./middleware/database.js";
+import { connectDatabase } from "./db.js";
 
 dotenv.config();
 const PORT = process.env.PORT || 3001;
@@ -22,8 +23,21 @@ app.use("/api", commentRoutes);
 app.use("/api", openRouterRoutes);
 
 
-if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => console.log("Listening on port", PORT));
+async function startServer() {
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+
+  try {
+    await connectDatabase();
+    console.log("MongoDB connected");
+    app.listen(PORT, () => console.log("Listening on port", PORT));
+  } catch (error) {
+    console.error("MongoDB connection failed:", error.message);
+    process.exitCode = 1;
+  }
 }
+
+startServer();
 
 export default app;

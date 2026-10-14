@@ -53,6 +53,16 @@
 
         <label>Comment style</label>
         <div id="styles" class="chips" role="radiogroup"></div>
+
+        <h3 class="section-heading">Comment Length</h3>
+        <div id="commentLengths" class="chips" role="radiogroup"></div>
+
+        <h3 class="section-heading">Adjust Style</h3>
+        <div class="switches">
+          <label class="switch"><input id="shorter" type="checkbox" /><span class="track"></span><span>Shorter</span></label>
+          <label class="switch"><input id="moreCasual" type="checkbox" /><span class="track"></span><span>More casual</span></label>
+          <label class="switch"><input id="lessAiSounding" type="checkbox" /><span class="track"></span><span>Less AI-sounding</span></label>
+        </div>
       </section>
 
       <section data-panel="context" class="panel">
@@ -75,6 +85,17 @@
               <strong>Generated:</strong> <span id="accComments">0</span>
             </div>
           </div>
+          <div class="usage-card">
+            <div><strong>Tokens used:</strong> <span id="accTokens">0</span></div>
+            <div><strong>Last comment:</strong> <span id="accLastTokens">0</span></div>
+          </div>
+        </div>
+        <div class="history-section">
+          <div class="history-heading">
+            <h4>Comment token history</h4>
+            <span>Latest 25</span>
+          </div>
+          <div id="tokenHistory" class="token-history"></div>
         </div>
         <button type="button" id="logoutBtn" class="link-btn" style="color: #b24020; margin-top: 16px;">Logout</button>
         
@@ -85,8 +106,7 @@
       </section>
 
       <footer id="saveBar">
-        <span id="status" role="status"></span>
-        <button type="submit" id="save" class="primary">Save</button>
+        <span id="status" role="status">Changes save automatically</span>
       </footer>
     </form>
   </div>

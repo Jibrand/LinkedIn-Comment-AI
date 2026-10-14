@@ -50,8 +50,15 @@ export async function getCommentStats() {
   return await fetchApi("/comment/stats", { method: "GET" });
 }
 
-export async function recordCommentUsage() {
-  return await fetchApi("/comment", { method: "POST" });
+export async function getCommentHistory() {
+  return await fetchApi("/comment/history?limit=25", { method: "GET" });
+}
+
+export async function recordCommentUsage(usage = {}) {
+  return await fetchApi("/comment", {
+    method: "POST",
+    body: JSON.stringify(usage),
+  });
 }
 
 export function logout() {

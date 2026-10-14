@@ -1,8 +1,15 @@
 import { getSettings, saveSettings, MODELS, STYLES } from "../utils/storage.js";
-import { registerUser, loginUser, getUserInfo, getCommentStats, logout } from "../utils/api.js";
+import { registerUser, loginUser, getUserInfo, getCommentStats, getCommentHistory, logout } from "../utils/api.js";
 
 const $ = (id) => document.getElementById(id);
 let currentStyle = "Professional";
+let currentCommentLength = "Medium";
+let saveTimer;
+const COMMENT_LENGTHS = [
+  { value: "Short", range: "1–2 sentences" },
+  { value: "Medium", range: "2–4 sentences" },
+  { value: "Long", range: "4–6 sentences" },
+];
 let isLoginMode = false;
 
 // ---------- Auth View ----------
@@ -19,13 +26,47 @@ async function checkAuthAndRender() {
       $("accEmail").textContent = userInfo.result.email;
       $("accPlan").textContent = userInfo.result.plan || "Free";
       $("accComments").textContent = stats.totalComments || 0;
+      const usage = (await getSettings()).usage;
+      $("accTokens").textContent = Number(usage.totalTokens || 0).toLocaleString();
+      $("accLastTokens").textContent = Number(usage.lastTokens || 0).toLocaleString();
+      try {
+        const history = await getCommentHistory();
+        renderCommentHistory(history.history || []);
+      } catch (error) {
+        console.error("Failed to load token history:", error);
+        renderCommentHistory([]);
+        $("tokenHistory").innerHTML = '<div class="history-empty">History temporarily unavailable.</div>';
+      }
     } catch (e) {
       // Token invalid or expired
       logout();
       showAuth();
     }
+
   } else {
     showAuth();
+  }
+}
+
+function renderCommentHistory(history) {
+  const list = $("tokenHistory");
+  list.innerHTML = "";
+  if (!history.length) {
+    list.innerHTML = '<div class="history-empty">No token history yet.</div>';
+    return;
+  }
+  for (const item of history) {
+    const row = document.createElement("div");
+    row.className = "history-row";
+    const date = new Date(item.createdAt);
+    row.innerHTML = `
+      <div class="history-main">
+        <strong>${Number(item.totalTokens || 0).toLocaleString()} tokens</strong>
+        <span>${date.toLocaleDateString()} · ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+      </div>
+      <div class="history-detail">${Number(item.inputTokens || 0).toLocaleString()} in · ${Number(item.outputTokens || 0).toLocaleString()} out</div>
+    `;
+    list.appendChild(row);
   }
 }
 
@@ -89,6 +130,39 @@ document.querySelectorAll("[data-tab]").forEach((tab) =>
 );
 
 // ---------- Settings ----------
+function settingsFromForm() {
+  return {
+    model: $("model").value,
+    style: currentStyle,
+    commentLength: currentCommentLength,
+    adjustStyle: {
+      shorter: $("shorter").checked,
+      moreCasual: $("moreCasual").checked,
+      lessAiSounding: $("lessAiSounding").checked,
+    },
+    systemPrompt: $("systemPrompt").value,
+  };
+}
+
+async function saveFormSettings() {
+  try {
+    await saveSettings(settingsFromForm());
+    $("status").textContent = "Auto-saved";
+    $("status").className = "ok";
+  } catch (error) {
+    console.error("Failed to save settings:", error);
+    $("status").textContent = "Could not save";
+    $("status").className = "warn";
+  }
+}
+
+function scheduleSettingsSave() {
+  $("status").textContent = "Saving...";
+  $("status").className = "";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveFormSettings, 250);
+}
+
 function renderStyles() {
   $("styles").innerHTML = "";
   for (const st of STYLES) {
@@ -98,8 +172,23 @@ function renderStyles() {
     b.textContent = st;
     b.setAttribute("role", "radio");
     b.setAttribute("aria-checked", st === currentStyle);
-    b.onclick = () => { currentStyle = st; renderStyles(); };
+    b.onclick = () => { currentStyle = st; renderStyles(); scheduleSettingsSave(); };
     $("styles").appendChild(b);
+  }
+}
+
+function renderCommentLengths() {
+  $("commentLengths").innerHTML = "";
+  for (const length of COMMENT_LENGTHS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip length-chip" + (length.value === currentCommentLength ? " active" : "");
+    b.innerHTML = `${length.value}<small>${length.range}</small>`;
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", length.value === currentCommentLength);
+    b.setAttribute("aria-label", `${length.value}, ${length.range}`);
+    b.onclick = () => { currentCommentLength = length.value; renderCommentLengths(); scheduleSettingsSave(); };
+    $("commentLengths").appendChild(b);
   }
 }
 
@@ -118,17 +207,28 @@ function updateBadge(isLoggedIn) {
   $("spCount").textContent = s.systemPrompt.length;
   currentStyle = s.style;
   renderStyles();
+  currentCommentLength = COMMENT_LENGTHS.some((length) => length.value === s.commentLength)
+    ? s.commentLength
+    : "Medium";
+  renderCommentLengths();
+  $("shorter").checked = Boolean(s.adjustStyle?.shorter);
+  $("moreCasual").checked = Boolean(s.adjustStyle?.moreCasual);
+  $("lessAiSounding").checked = Boolean(s.adjustStyle?.lessAiSounding);
   updateBadge(Boolean(s.token));
   $("debugLog").value = s.lastLog || "No logs yet. Run the commenter to see output.";
 })();
 
-$("systemPrompt").addEventListener("input", () => ($("spCount").textContent = $("systemPrompt").value.length));
+$("model").addEventListener("change", scheduleSettingsSave);
+$("shorter").addEventListener("change", scheduleSettingsSave);
+$("moreCasual").addEventListener("change", scheduleSettingsSave);
+$("lessAiSounding").addEventListener("change", scheduleSettingsSave);
+$("systemPrompt").addEventListener("input", () => {
+  $("spCount").textContent = $("systemPrompt").value.length;
+  scheduleSettingsSave();
+});
 
 $("appForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await saveSettings({ model: $("model").value, style: currentStyle, systemPrompt: $("systemPrompt").value });
-  updateBadge(Boolean((await getSettings()).token));
-  $("status").textContent = "Saved ✓";
-  $("status").className = "ok";
-  setTimeout(() => ($("status").textContent = ""), 2500);
+  clearTimeout(saveTimer);
+  await saveFormSettings();
 });

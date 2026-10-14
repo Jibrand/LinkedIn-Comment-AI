@@ -9,8 +9,8 @@ variables before deploying:
 
 - `CONNECTION_URL`
 - `JWT_SECRET`
-- `OPENROUTER_API_KEY`
-- `OPENROUTER_MODEL` (optional, defaults to `openrouter/free`)
+- `OPENAI_API_KEY`
+- The backend uses `gpt-4o-mini` for comment generation.
 - `NODE_ENV=production`
 
 The extension production API is configured as:

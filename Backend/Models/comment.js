@@ -5,6 +5,25 @@ const commentSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'user',
         required: true
+    },
+    model: {
+        type: String,
+        default: "gpt-4o-mini"
+    },
+    inputTokens: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    outputTokens: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    totalTokens: {
+        type: Number,
+        default: 0,
+        min: 0
     }
 }, { timestamps: true });
 

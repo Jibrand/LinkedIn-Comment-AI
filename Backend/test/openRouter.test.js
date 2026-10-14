@@ -10,10 +10,10 @@ const response = await fetch(API_URL, {
 const data = await response.json().catch(() => null);
 
 if (!response.ok || !data?.success || typeof data.text !== "string") {
-  console.error("OpenRouter API test failed:", response.status, data);
+  console.error("OpenAI API test failed:", response.status, data);
   process.exit(1);
 }
 
-console.log("OpenRouter API test passed.");
+console.log("OpenAI API test passed.");
 console.log("Model:", data.model);
 console.log("Answer:", data.text);
